@@ -1,9 +1,9 @@
 diff --git a/.github/workflows/deploy-worker.yml b/.github/workflows/deploy-worker.yml
 new file mode 100644
-index 0000000..46e5279
+index 0000000..83b70d2
 --- /dev/null
 +++ b/.github/workflows/deploy-worker.yml
-@@ -0,0 +1,145 @@
+@@ -0,0 +1,157 @@
 +name: Deploy worker/
 +
 +# Deploys the minimal `worker/` Worker (FLUX.2 generations + Jev decisions proxy).
@@ -80,10 +80,22 @@ index 0000000..46e5279
 +          echo "| account + Workers access | HTTP $ACODE - $ASTATUS |" >> $GITHUB_STEP_SUMMARY
 +          echo "::notice title=Account access::HTTP $ACODE | $ASTATUS"
 +
-+          if [ "$CODE" != "200" ]; then
-+            echo "" >> $GITHUB_STEP_SUMMARY
-+            echo "The API token was rejected by Cloudflare. Recreate it with **Workers Scripts: Edit** + **Workers AI: Edit** and update the repo secret." >> $GITHUB_STEP_SUMMARY
-+            echo "::error title=Token rejected::HTTP $CODE | $STATUS"
++          # NOTE: /user/tokens/verify only understands *user* tokens. Account-owned
++          # tokens (the `cfat_`-prefixed kind) return 401 there even when perfectly
++          # valid, so the authoritative check is the account-scoped call above.
++          if [ "$ACODE" = "401" ] || [ "$ACODE" = "403" ]; then
++            echo "::error title=Token rejected::account call returned HTTP $ACODE | $ASTATUS"
++            echo "The API token cannot access this account. Check it has Workers Scripts: Edit + Workers AI: Edit on account $CLOUDFLARE_ACCOUNT_ID." >> $GITHUB_STEP_SUMMARY
++            exit 1
++          fi
++
++          if echo "$ASTATUS" | grep -q 10007; then
++            echo "::error title=No workers.dev subdomain::The Cloudflare account has never opened Workers & Pages, so it has no *.workers.dev subdomain to deploy to."
++            {
++              echo ""
++              echo "**Action needed:** open <https://dash.cloudflare.com/?to=/:account/workers/workers-and-pages> once."
++              echo "Loading that page creates the workers.dev subdomain automatically. Then re-run this workflow."
++            } >> $GITHUB_STEP_SUMMARY
 +            exit 1
 +          fi
 +
@@ -346,12 +358,12 @@ index 0000000..605a462
 +| 6 | No server-side home for the Jev key | repo-wide | Medium |
 diff --git a/worker/.deploy-trigger b/worker/.deploy-trigger
 new file mode 100644
-index 0000000..c529ba9
+index 0000000..d82d433
 --- /dev/null
 +++ b/worker/.deploy-trigger
 @@ -0,0 +1,2 @@
 +Touch this file to re-trigger .github/workflows/deploy-worker.yml
-+4
++5
 diff --git a/worker/.dev.vars.example b/worker/.dev.vars.example
 new file mode 100644
 index 0000000..c893924

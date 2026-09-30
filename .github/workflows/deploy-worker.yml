@@ -74,10 +74,22 @@ jobs:
           echo "| account + Workers access | HTTP $ACODE - $ASTATUS |" >> $GITHUB_STEP_SUMMARY
           echo "::notice title=Account access::HTTP $ACODE | $ASTATUS"
 
-          if [ "$CODE" != "200" ]; then
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "The API token was rejected by Cloudflare. Recreate it with **Workers Scripts: Edit** + **Workers AI: Edit** and update the repo secret." >> $GITHUB_STEP_SUMMARY
-            echo "::error title=Token rejected::HTTP $CODE | $STATUS"
+          # NOTE: /user/tokens/verify only understands *user* tokens. Account-owned
+          # tokens (the `cfat_`-prefixed kind) return 401 there even when perfectly
+          # valid, so the authoritative check is the account-scoped call above.
+          if [ "$ACODE" = "401" ] || [ "$ACODE" = "403" ]; then
+            echo "::error title=Token rejected::account call returned HTTP $ACODE | $ASTATUS"
+            echo "The API token cannot access this account. Check it has Workers Scripts: Edit + Workers AI: Edit on account $CLOUDFLARE_ACCOUNT_ID." >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+
+          if echo "$ASTATUS" | grep -q 10007; then
+            echo "::error title=No workers.dev subdomain::The Cloudflare account has never opened Workers & Pages, so it has no *.workers.dev subdomain to deploy to."
+            {
+              echo ""
+              echo "**Action needed:** open <https://dash.cloudflare.com/?to=/:account/workers/workers-and-pages> once."
+              echo "Loading that page creates the workers.dev subdomain automatically. Then re-run this workflow."
+            } >> $GITHUB_STEP_SUMMARY
             exit 1
           fi
 
