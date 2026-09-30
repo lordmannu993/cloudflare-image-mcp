@@ -386,12 +386,12 @@ index 0000000..605a462
 +| 6 | No server-side home for the Jev key | repo-wide | Medium |
 diff --git a/worker/.deploy-trigger b/worker/.deploy-trigger
 new file mode 100644
-index 0000000..e40a3a7
+index 0000000..3ff4c41
 --- /dev/null
 +++ b/worker/.deploy-trigger
 @@ -0,0 +1,2 @@
 +Touch this file to re-trigger .github/workflows/deploy-worker.yml
-+6
++7
 diff --git a/worker/.dev.vars.example b/worker/.dev.vars.example
 new file mode 100644
 index 0000000..c893924
