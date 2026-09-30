@@ -1,0 +1,17 @@
+{
+  "name": "cloudflare-image-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "check": "tsc --noEmit",
+    "deploy": "wrangler deploy",
+    "secrets": "bash ./scripts/put-secrets.sh"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250121.0",
+    "typescript": "^5.3.0",
+    "wrangler": "4.60.0"
+  }
+}

@@ -1,0 +1,6 @@
+# Copy to .dev.vars (git-ignored) for `wrangler dev`
+CLOUDFLARE_ACCOUNT_ID=
+CLOUDFLARE_API_TOKEN=
+# Optional
+JEV_API_KEY=
+API_KEYS=

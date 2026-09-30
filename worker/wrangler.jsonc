@@ -1,0 +1,19 @@
+{
+  // Minimal, deployable Worker. No R2 bucket, no pre-provisioning required.
+  // Account id is supplied by the CLOUDFLARE_ACCOUNT_ID env var at deploy time.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cloudflare-image-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "vars": {
+    "DEFAULT_MODEL": "@cf/black-forest-labs/flux-2-klein-4b",
+    "JEV_API_URL": "https://api.jev.ai/v1/decisions"
+  }
+  // Secrets (set with `wrangler secret put`, never committed):
+  //   CLOUDFLARE_ACCOUNT_ID  - required, account that runs Workers AI
+  //   CLOUDFLARE_API_TOKEN   - required, token with Workers AI: Read+Edit
+  //   JEV_API_KEY            - optional, enables server-side /v1/decisions proxy
+  //   API_KEYS               - optional, comma separated client keys
+}
