@@ -7,7 +7,8 @@
     "dev": "wrangler dev",
     "check": "tsc --noEmit",
     "deploy": "wrangler deploy",
-    "secrets": "bash ./scripts/put-secrets.sh"
+    "secrets": "bash ./scripts/put-secrets.sh",
+    "launch": "bash ./scripts/launch.sh"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250121.0",

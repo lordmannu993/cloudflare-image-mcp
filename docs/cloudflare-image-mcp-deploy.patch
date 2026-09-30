@@ -1,3 +1,98 @@
+diff --git a/.github/workflows/deploy-worker.yml b/.github/workflows/deploy-worker.yml
+new file mode 100644
+index 0000000..1557008
+--- /dev/null
++++ b/.github/workflows/deploy-worker.yml
+@@ -0,0 +1,89 @@
++name: Deploy worker/
++
++# Deploys the minimal `worker/` Worker (FLUX.2 generations + Jev decisions proxy).
++# No R2 bucket, no pre-provisioning. Secrets come from repository secrets.
++
++on:
++  workflow_dispatch:
++  push:
++    branches:
++      - main
++    paths:
++      - 'worker/**'
++      - '.github/workflows/deploy-worker.yml'
++
++jobs:
++  deploy:
++    name: Deploy
++    runs-on: ubuntu-latest
++    permissions:
++      contents: read
++    defaults:
++      run:
++        working-directory: worker
++
++    steps:
++      - uses: actions/checkout@v4
++
++      - uses: actions/setup-node@v4
++        with:
++          node-version: '20'
++          cache: 'npm'
++          cache-dependency-path: worker/package-lock.json
++
++      - name: Install
++        run: npm ci
++
++      - name: Type check
++        run: npm run check
++
++      - name: Deploy
++        run: npx wrangler deploy
++        env:
++          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
++          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
++
++      - name: Push runtime secrets
++        env:
++          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
++          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
++          JEV_API_KEY: ${{ secrets.JEV_API_KEY }}
++          API_KEYS: ${{ secrets.API_KEYS }}
++        run: |
++          printf '%s' "$CLOUDFLARE_ACCOUNT_ID" | npx wrangler secret put CLOUDFLARE_ACCOUNT_ID
++          printf '%s' "$CLOUDFLARE_API_TOKEN"  | npx wrangler secret put CLOUDFLARE_API_TOKEN
++          if [ -n "$JEV_API_KEY" ]; then
++            printf '%s' "$JEV_API_KEY" | npx wrangler secret put JEV_API_KEY
++          else
++            echo "JEV_API_KEY not set - /v1/decisions will require an X-Jev-Api-Key header."
++          fi
++          if [ -n "$API_KEYS" ]; then
++            printf '%s' "$API_KEYS" | npx wrangler secret put API_KEYS
++          fi
++
++      - name: Resolve Worker URL and verify /health
++        env:
++          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
++          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
++        run: |
++          SUBDOMAIN=$(curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
++            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" \
++            | node -e "let s='';process.stdin.on('data',d=>s+=d);process.stdin.on('end',()=>{const j=JSON.parse(s);console.log(j.result?.subdomain||'')})")
++          if [ -z "$SUBDOMAIN" ]; then
++            echo "Could not resolve workers.dev subdomain (is it enabled on the account?)"
++            exit 1
++          fi
++          URL="https://cloudflare-image-worker.$SUBDOMAIN.workers.dev"
++          echo "Worker URL: $URL"
++          sleep 10
++          curl -sS --retry 5 --retry-delay 5 "$URL/health" | tee /tmp/health.json
++          node -e "const h=require('/tmp/health.json'); if(!h.config.workers_ai_credentials){console.error('AI credentials missing on the Worker');process.exit(1)}"
++          {
++            echo "### Deployed"
++            echo ""
++            echo "Paste this into **Settings → Pictures**:"
++            echo ""
++            echo '```'
++            echo "$URL"
++            echo '```'
++          } >> $GITHUB_STEP_SUMMARY
 diff --git a/docs/cloudflare-image-mcp-deploy.md b/docs/cloudflare-image-mcp-deploy.md
 new file mode 100644
 index 0000000..605a462
@@ -216,10 +311,10 @@ index 0000000..a933f10
 +.dev.vars
 diff --git a/worker/README.md b/worker/README.md
 new file mode 100644
-index 0000000..df379fb
+index 0000000..217fddf
 --- /dev/null
 +++ b/worker/README.md
-@@ -0,0 +1,133 @@
+@@ -0,0 +1,146 @@
 +# worker/ — the deployable Worker
 +
 +A single-file Cloudflare Worker that actually deploys against a bare account:
@@ -266,9 +361,22 @@ index 0000000..df379fb
 +
 +### 3. Deploy
 +
++One command does everything — deploy, push the runtime secrets, resolve the
++URL, and verify `/health` (it exits non-zero if the credentials didn't land):
++
 +```bash
 +export CLOUDFLARE_ACCOUNT_ID=your_account_id
 +export CLOUDFLARE_API_TOKEN=your_api_token
++export JEV_API_KEY=...        # optional
++export API_KEYS=key1,key2     # optional
++npm run launch
++```
++
++It finishes by printing the URL to paste into **Settings → Pictures**. If you'd
++rather do it in pieces, `npm run deploy` and `npm run secrets` are the two
++halves:
++
++```bash
 +npm run deploy
 +```
 +
@@ -1899,10 +2007,10 @@ index 0000000..2c1afb8
 +}
 diff --git a/worker/package.json b/worker/package.json
 new file mode 100644
-index 0000000..de9fcc1
+index 0000000..108d690
 --- /dev/null
 +++ b/worker/package.json
-@@ -0,0 +1,17 @@
+@@ -0,0 +1,18 @@
 +{
 +  "name": "cloudflare-image-worker",
 +  "version": "1.0.0",
@@ -1912,7 +2020,8 @@ index 0000000..de9fcc1
 +    "dev": "wrangler dev",
 +    "check": "tsc --noEmit",
 +    "deploy": "wrangler deploy",
-+    "secrets": "bash ./scripts/put-secrets.sh"
++    "secrets": "bash ./scripts/put-secrets.sh",
++    "launch": "bash ./scripts/launch.sh"
 +  },
 +  "devDependencies": {
 +    "@cloudflare/workers-types": "^4.20250121.0",
@@ -1920,6 +2029,74 @@ index 0000000..de9fcc1
 +    "wrangler": "4.60.0"
 +  }
 +}
+diff --git a/worker/scripts/launch.sh b/worker/scripts/launch.sh
+new file mode 100755
+index 0000000..b3436e7
+--- /dev/null
++++ b/worker/scripts/launch.sh
+@@ -0,0 +1,62 @@
++#!/usr/bin/env bash
++# One-shot: deploy -> push runtime secrets -> resolve URL -> verify /health.
++# Reads credentials from the environment; never writes them to disk.
++set -euo pipefail
++cd "$(dirname "$0")/.."
++
++: "${CLOUDFLARE_ACCOUNT_ID:?set CLOUDFLARE_ACCOUNT_ID in your environment}"
++: "${CLOUDFLARE_API_TOKEN:?set CLOUDFLARE_API_TOKEN in your environment}"
++
++WORKER_NAME=$(node -e "
++  const fs=require('fs');
++  const raw=fs.readFileSync('wrangler.jsonc','utf8').replace(/^\s*\/\/.*$/gm,'');
++  console.log(JSON.parse(raw).name);
++")
++
++echo "==> 1/4 deploying \"$WORKER_NAME\""
++npx wrangler deploy
++
++echo "==> 2/4 pushing runtime secrets"
++printf '%s' "$CLOUDFLARE_ACCOUNT_ID" | npx wrangler secret put CLOUDFLARE_ACCOUNT_ID
++printf '%s' "$CLOUDFLARE_API_TOKEN"  | npx wrangler secret put CLOUDFLARE_API_TOKEN
++if [ -n "${JEV_API_KEY:-}" ]; then
++  printf '%s' "$JEV_API_KEY" | npx wrangler secret put JEV_API_KEY
++else
++  echo "    (JEV_API_KEY not set - /v1/decisions will require an X-Jev-Api-Key header)"
++fi
++if [ -n "${API_KEYS:-}" ]; then
++  printf '%s' "$API_KEYS" | npx wrangler secret put API_KEYS
++fi
++
++echo "==> 3/4 resolving workers.dev URL"
++SUBDOMAIN=$(curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
++  "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" \
++  | node -e "let s='';process.stdin.on('data',d=>s+=d);process.stdin.on('end',()=>{
++      const j=JSON.parse(s);
++      if(!j.success){console.error(JSON.stringify(j.errors||j));process.exit(1);}
++      console.log(j.result?.subdomain||'');
++    });")
++
++if [ -z "$SUBDOMAIN" ]; then
++  echo "❌ No workers.dev subdomain on this account. Enable it: Cloudflare dashboard -> Workers & Pages -> Subdomain."
++  exit 1
++fi
++
++URL="https://$WORKER_NAME.$SUBDOMAIN.workers.dev"
++
++echo "==> 4/4 verifying $URL/health"
++sleep 8
++HEALTH=$(curl -sS --retry 5 --retry-delay 4 "$URL/health")
++echo "$HEALTH"
++
++echo "$HEALTH" | node -e "
++  let s='';process.stdin.on('data',d=>s+=d);process.stdin.on('end',()=>{
++    const h=JSON.parse(s);
++    if(!h.config.workers_ai_credentials){
++      console.error('\n❌ workers_ai_credentials is false - the secrets did not land. Re-run this script.');
++      process.exit(1);
++    }
++    console.log('\n✅ Live. Paste this into Settings -> Pictures:\n');
++    console.log('   ' + process.env.URL + '\n');
++  });
++" URL="$URL"
 diff --git a/worker/scripts/put-secrets.sh b/worker/scripts/put-secrets.sh
 new file mode 100755
 index 0000000..e1cbcbe

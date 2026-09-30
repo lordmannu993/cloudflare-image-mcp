@@ -44,9 +44,22 @@ npx wrangler login          # or: export CLOUDFLARE_API_TOKEN=...
 
 ### 3. Deploy
 
+One command does everything — deploy, push the runtime secrets, resolve the
+URL, and verify `/health` (it exits non-zero if the credentials didn't land):
+
 ```bash
 export CLOUDFLARE_ACCOUNT_ID=your_account_id
 export CLOUDFLARE_API_TOKEN=your_api_token
+export JEV_API_KEY=...        # optional
+export API_KEYS=key1,key2     # optional
+npm run launch
+```
+
+It finishes by printing the URL to paste into **Settings → Pictures**. If you'd
+rather do it in pieces, `npm run deploy` and `npm run secrets` are the two
+halves:
+
+```bash
 npm run deploy
 ```
 
