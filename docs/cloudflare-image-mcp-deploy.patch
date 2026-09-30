@@ -1,9 +1,9 @@
 diff --git a/.github/workflows/deploy-worker.yml b/.github/workflows/deploy-worker.yml
 new file mode 100644
-index 0000000..4e6210b
+index 0000000..46e5279
 --- /dev/null
 +++ b/.github/workflows/deploy-worker.yml
-@@ -0,0 +1,140 @@
+@@ -0,0 +1,145 @@
 +name: Deploy worker/
 +
 +# Deploys the minimal `worker/` Worker (FLUX.2 generations + Jev decisions proxy).
@@ -62,6 +62,7 @@ index 0000000..4e6210b
 +
 +          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
 +            echo "| verdict | **a required secret is missing** |" >> $GITHUB_STEP_SUMMARY
++            echo "::error title=Missing secret::ACCOUNT_ID_LEN=${#CLOUDFLARE_ACCOUNT_ID} TOKEN_LEN=${#CLOUDFLARE_API_TOKEN}"
 +            exit 1
 +          fi
 +
@@ -70,16 +71,19 @@ index 0000000..4e6210b
 +            https://api.cloudflare.com/client/v4/user/tokens/verify || echo 000)
 +          STATUS=$(node -e "try{const j=require('/tmp/verify.json');console.log(j.success?('valid/'+(j.result?.status||'?')):('rejected: '+JSON.stringify(j.errors)))}catch(e){console.log('unparseable response')}")
 +          echo "| token verify | HTTP $CODE - $STATUS |" >> $GITHUB_STEP_SUMMARY
++          echo "::notice title=Token verify::HTTP $CODE | $STATUS | id_len=${#CLOUDFLARE_ACCOUNT_ID} tok_len=${#CLOUDFLARE_API_TOKEN}"
 +
 +          ACODE=$(curl -sS -o /tmp/acct.json -w '%{http_code}' \
 +            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
 +            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" || echo 000)
 +          ASTATUS=$(node -e "try{const j=require('/tmp/acct.json');console.log(j.success?('subdomain='+j.result?.subdomain):('error: '+JSON.stringify(j.errors)))}catch(e){console.log('unparseable response')}")
 +          echo "| account + Workers access | HTTP $ACODE - $ASTATUS |" >> $GITHUB_STEP_SUMMARY
++          echo "::notice title=Account access::HTTP $ACODE | $ASTATUS"
 +
 +          if [ "$CODE" != "200" ]; then
 +            echo "" >> $GITHUB_STEP_SUMMARY
 +            echo "The API token was rejected by Cloudflare. Recreate it with **Workers Scripts: Edit** + **Workers AI: Edit** and update the repo secret." >> $GITHUB_STEP_SUMMARY
++            echo "::error title=Token rejected::HTTP $CODE | $STATUS"
 +            exit 1
 +          fi
 +
@@ -97,6 +101,7 @@ index 0000000..4e6210b
 +              tail -40 /tmp/deploy.log
 +              echo '```'
 +            } >> $GITHUB_STEP_SUMMARY
++            echo "::error title=wrangler deploy failed::$(tail -5 /tmp/deploy.log | tr '\n' ' ' | cut -c1-600)"
 +            exit 1
 +          }
 +
@@ -341,12 +346,12 @@ index 0000000..605a462
 +| 6 | No server-side home for the Jev key | repo-wide | Medium |
 diff --git a/worker/.deploy-trigger b/worker/.deploy-trigger
 new file mode 100644
-index 0000000..7e9c7df
+index 0000000..c529ba9
 --- /dev/null
 +++ b/worker/.deploy-trigger
 @@ -0,0 +1,2 @@
 +Touch this file to re-trigger .github/workflows/deploy-worker.yml
-+3
++4
 diff --git a/worker/.dev.vars.example b/worker/.dev.vars.example
 new file mode 100644
 index 0000000..c893924

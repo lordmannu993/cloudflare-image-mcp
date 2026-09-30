@@ -56,6 +56,7 @@ jobs:
 
           if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
             echo "| verdict | **a required secret is missing** |" >> $GITHUB_STEP_SUMMARY
+            echo "::error title=Missing secret::ACCOUNT_ID_LEN=${#CLOUDFLARE_ACCOUNT_ID} TOKEN_LEN=${#CLOUDFLARE_API_TOKEN}"
             exit 1
           fi
 
@@ -64,16 +65,19 @@ jobs:
             https://api.cloudflare.com/client/v4/user/tokens/verify || echo 000)
           STATUS=$(node -e "try{const j=require('/tmp/verify.json');console.log(j.success?('valid/'+(j.result?.status||'?')):('rejected: '+JSON.stringify(j.errors)))}catch(e){console.log('unparseable response')}")
           echo "| token verify | HTTP $CODE - $STATUS |" >> $GITHUB_STEP_SUMMARY
+          echo "::notice title=Token verify::HTTP $CODE | $STATUS | id_len=${#CLOUDFLARE_ACCOUNT_ID} tok_len=${#CLOUDFLARE_API_TOKEN}"
 
           ACODE=$(curl -sS -o /tmp/acct.json -w '%{http_code}' \
             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
             "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" || echo 000)
           ASTATUS=$(node -e "try{const j=require('/tmp/acct.json');console.log(j.success?('subdomain='+j.result?.subdomain):('error: '+JSON.stringify(j.errors)))}catch(e){console.log('unparseable response')}")
           echo "| account + Workers access | HTTP $ACODE - $ASTATUS |" >> $GITHUB_STEP_SUMMARY
+          echo "::notice title=Account access::HTTP $ACODE | $ASTATUS"
 
           if [ "$CODE" != "200" ]; then
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "The API token was rejected by Cloudflare. Recreate it with **Workers Scripts: Edit** + **Workers AI: Edit** and update the repo secret." >> $GITHUB_STEP_SUMMARY
+            echo "::error title=Token rejected::HTTP $CODE | $STATUS"
             exit 1
           fi
 
@@ -91,6 +95,7 @@ jobs:
               tail -40 /tmp/deploy.log
               echo '```'
             } >> $GITHUB_STEP_SUMMARY
+            echo "::error title=wrangler deploy failed::$(tail -5 /tmp/deploy.log | tr '\n' ' ' | cut -c1-600)"
             exit 1
           }
 
