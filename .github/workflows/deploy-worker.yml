@@ -8,6 +8,7 @@ on:
   push:
     branches:
       - main
+      - arena/01a0f250-cloudflare-image-mcp
     paths:
       - 'worker/**'
       - '.github/workflows/deploy-worker.yml'
