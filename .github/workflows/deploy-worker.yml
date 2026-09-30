@@ -135,7 +135,22 @@ jobs:
               tail -40 /tmp/deploy.log
               echo '```'
             } >> $GITHUB_STEP_SUMMARY
-            echo "::error title=wrangler deploy failed::$(tail -5 /tmp/deploy.log | tr '\n' ' ' | cut -c1-600)"
+            ERRLINES=$(grep -iE '✘|error|ERROR|code: ?[0-9]{4}|Authentication|permission|forbidden' /tmp/deploy.log \
+              | grep -viE 'telemetry|Logs were written' | head -20 | tr '\n' ' ' | cut -c1-900)
+            echo "::error title=wrangler deploy failed::${ERRLINES:-see debug log}"
+            WLOG=$(ls -t /home/runner/.config/.wrangler/logs/*.log 2>/dev/null | head -1)
+            if [ -n "$WLOG" ]; then
+              echo "::error title=wrangler debug log::$(grep -iE '✘|error|code|message' "$WLOG" | grep -viE 'telemetry' | tail -20 | tr '\n' ' ' | cut -c1-900)"
+              {
+                echo ""
+                echo "<details><summary>wrangler debug log (tail)</summary>"
+                echo ""
+                echo '```'
+                tail -60 "$WLOG"
+                echo '```'
+                echo "</details>"
+              } >> $GITHUB_STEP_SUMMARY
+            fi
             exit 1
           }
 
