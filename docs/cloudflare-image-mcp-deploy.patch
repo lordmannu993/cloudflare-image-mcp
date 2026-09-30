@@ -1,9 +1,9 @@
 diff --git a/.github/workflows/deploy-worker.yml b/.github/workflows/deploy-worker.yml
 new file mode 100644
-index 0000000..4ab697e
+index 0000000..4e6210b
 --- /dev/null
 +++ b/.github/workflows/deploy-worker.yml
-@@ -0,0 +1,90 @@
+@@ -0,0 +1,140 @@
 +name: Deploy worker/
 +
 +# Deploys the minimal `worker/` Worker (FLUX.2 generations + Jev decisions proxy).
@@ -44,11 +44,61 @@ index 0000000..4ab697e
 +      - name: Type check
 +        run: npm run check
 +
-+      - name: Deploy
-+        run: npx wrangler deploy
++      - name: Preflight (no secret values are printed)
 +        env:
 +          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 +          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
++        run: |
++          {
++            echo "### Preflight"
++            echo ""
++            echo "| check | result |"
++            echo "|---|---|"
++            echo "| CLOUDFLARE_ACCOUNT_ID present | ${CLOUDFLARE_ACCOUNT_ID:+yes}${CLOUDFLARE_ACCOUNT_ID:-NO} |"
++            echo "| CLOUDFLARE_ACCOUNT_ID length | ${#CLOUDFLARE_ACCOUNT_ID} (expect 32) |"
++            echo "| CLOUDFLARE_API_TOKEN present | ${CLOUDFLARE_API_TOKEN:+yes}${CLOUDFLARE_API_TOKEN:-NO} |"
++            echo "| CLOUDFLARE_API_TOKEN length | ${#CLOUDFLARE_API_TOKEN} |"
++          } >> $GITHUB_STEP_SUMMARY
++
++          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
++            echo "| verdict | **a required secret is missing** |" >> $GITHUB_STEP_SUMMARY
++            exit 1
++          fi
++
++          CODE=$(curl -sS -o /tmp/verify.json -w '%{http_code}' \
++            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
++            https://api.cloudflare.com/client/v4/user/tokens/verify || echo 000)
++          STATUS=$(node -e "try{const j=require('/tmp/verify.json');console.log(j.success?('valid/'+(j.result?.status||'?')):('rejected: '+JSON.stringify(j.errors)))}catch(e){console.log('unparseable response')}")
++          echo "| token verify | HTTP $CODE - $STATUS |" >> $GITHUB_STEP_SUMMARY
++
++          ACODE=$(curl -sS -o /tmp/acct.json -w '%{http_code}' \
++            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
++            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" || echo 000)
++          ASTATUS=$(node -e "try{const j=require('/tmp/acct.json');console.log(j.success?('subdomain='+j.result?.subdomain):('error: '+JSON.stringify(j.errors)))}catch(e){console.log('unparseable response')}")
++          echo "| account + Workers access | HTTP $ACODE - $ASTATUS |" >> $GITHUB_STEP_SUMMARY
++
++          if [ "$CODE" != "200" ]; then
++            echo "" >> $GITHUB_STEP_SUMMARY
++            echo "The API token was rejected by Cloudflare. Recreate it with **Workers Scripts: Edit** + **Workers AI: Edit** and update the repo secret." >> $GITHUB_STEP_SUMMARY
++            exit 1
++          fi
++
++      - name: Deploy
++        env:
++          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
++          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
++        run: |
++          set -o pipefail
++          npx wrangler deploy 2>&1 | tee /tmp/deploy.log || {
++            {
++              echo "### Deploy failed"
++              echo ""
++              echo '```'
++              tail -40 /tmp/deploy.log
++              echo '```'
++            } >> $GITHUB_STEP_SUMMARY
++            exit 1
++          }
 +
 +      - name: Push runtime secrets
 +        env:
@@ -291,12 +341,12 @@ index 0000000..605a462
 +| 6 | No server-side home for the Jev key | repo-wide | Medium |
 diff --git a/worker/.deploy-trigger b/worker/.deploy-trigger
 new file mode 100644
-index 0000000..421c4b4
+index 0000000..7e9c7df
 --- /dev/null
 +++ b/worker/.deploy-trigger
 @@ -0,0 +1,2 @@
 +Touch this file to re-trigger .github/workflows/deploy-worker.yml
-+2
++3
 diff --git a/worker/.dev.vars.example b/worker/.dev.vars.example
 new file mode 100644
 index 0000000..c893924
