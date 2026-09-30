@@ -1,9 +1,9 @@
 diff --git a/.github/workflows/deploy-worker.yml b/.github/workflows/deploy-worker.yml
 new file mode 100644
-index 0000000..83b70d2
+index 0000000..9ed562f
 --- /dev/null
 +++ b/.github/workflows/deploy-worker.yml
-@@ -0,0 +1,157 @@
+@@ -0,0 +1,185 @@
 +name: Deploy worker/
 +
 +# Deploys the minimal `worker/` Worker (FLUX.2 generations + Jev decisions proxy).
@@ -89,14 +89,42 @@ index 0000000..83b70d2
 +            exit 1
 +          fi
 +
++          # The dashboard normally creates the workers.dev subdomain on first visit,
++          # but the API can register it directly - no dashboard, no desktop needed.
 +          if echo "$ASTATUS" | grep -q 10007; then
-+            echo "::error title=No workers.dev subdomain::The Cloudflare account has never opened Workers & Pages, so it has no *.workers.dev subdomain to deploy to."
-+            {
-+              echo ""
-+              echo "**Action needed:** open <https://dash.cloudflare.com/?to=/:account/workers/workers-and-pages> once."
-+              echo "Loading that page creates the workers.dev subdomain automatically. Then re-run this workflow."
-+            } >> $GITHUB_STEP_SUMMARY
-+            exit 1
++            WANT="${{ vars.WORKERS_SUBDOMAIN }}"
++            WANT="${WANT:-img-${CLOUDFLARE_ACCOUNT_ID:0:8}}"
++            echo "::notice title=Registering subdomain::attempting to claim '$WANT'"
++
++            RCODE=$(curl -sS -o /tmp/sub.json -w '%{http_code}' -X PUT \
++              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
++              -H "Content-Type: application/json" \
++              --data "{\"subdomain\":\"$WANT\"}" \
++              "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" || echo 000)
++            RMSG=$(node -e "try{const j=require('/tmp/sub.json');console.log(j.success?'created':('error: '+JSON.stringify(j.errors)))}catch(e){console.log('unparseable')}")
++            echo "::notice title=Subdomain registration::HTTP $RCODE | $RMSG"
++
++            if [ "$RCODE" != "200" ]; then
++              echo "::error title=Could not register subdomain::HTTP $RCODE | $RMSG"
++              {
++                echo ""
++                echo "Could not auto-create the workers.dev subdomain (\`$WANT\`)."
++                echo "If the name is taken, set a repository **variable** \`WORKERS_SUBDOMAIN\` to something else and re-run."
++                echo "If it is a permissions error, the token needs **Workers Scripts: Edit**."
++              } >> $GITHUB_STEP_SUMMARY
++              exit 1
++            fi
++
++            # Registration can take a few seconds to propagate.
++            for i in 1 2 3 4 5 6 7 8 9 10; do
++              sleep 6
++              ASTATUS=$(curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
++                "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" \
++                | node -e "let s='';process.stdin.on('data',d=>s+=d);process.stdin.on('end',()=>{const j=JSON.parse(s);console.log(j.success?('subdomain='+j.result?.subdomain):'pending')});")
++              echo "  poll $i: $ASTATUS"
++              case "$ASTATUS" in subdomain=?*) break;; esac
++            done
++            echo "::notice title=Subdomain ready::$ASTATUS"
 +          fi
 +
 +      - name: Deploy
@@ -358,12 +386,12 @@ index 0000000..605a462
 +| 6 | No server-side home for the Jev key | repo-wide | Medium |
 diff --git a/worker/.deploy-trigger b/worker/.deploy-trigger
 new file mode 100644
-index 0000000..d82d433
+index 0000000..e40a3a7
 --- /dev/null
 +++ b/worker/.deploy-trigger
 @@ -0,0 +1,2 @@
 +Touch this file to re-trigger .github/workflows/deploy-worker.yml
-+5
++6
 diff --git a/worker/.dev.vars.example b/worker/.dev.vars.example
 new file mode 100644
 index 0000000..c893924
