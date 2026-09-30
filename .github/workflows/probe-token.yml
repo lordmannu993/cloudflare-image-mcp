@@ -41,7 +41,28 @@ jobs:
           echo "| probe | http | detail |" >> $GITHUB_STEP_SUMMARY
           echo "|---|---|---|" >> $GITHUB_STEP_SUMMARY
 
-          probe "accounts-list"    GET "https://api.cloudflare.com/client/v4/accounts?per_page=1"
+          probe "accounts-list"    GET "https://api.cloudflare.com/client/v4/accounts?per_page=50"
+
+          # Which account actually owns a workers.dev subdomain?
+          curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts?per_page=50" -o /tmp/accts.json
+          node -e "
+            const j=require('/tmp/accts.json');
+            for (const a of (j.result||[])) console.log(a.id+' '+a.name);
+          " > /tmp/accts.txt
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| account id | name | subdomain |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|---|" >> $GITHUB_STEP_SUMMARY
+          while read -r AID ANAME; do
+            SUB=$(curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              "https://api.cloudflare.com/client/v4/accounts/$AID/workers/subdomain" \
+              | node -e "let s='';process.stdin.on('data',d=>s+=d);process.stdin.on('end',()=>{
+                  const j=JSON.parse(s);
+                  console.log(j.success ? (j.result?.subdomain||'(empty)') : ((j.errors||[]).map(e=>e.code).join(',')));
+                });")
+            echo "::notice title=account::$AID | $ANAME | subdomain=$SUB"
+            echo "| \`$AID\` | $ANAME | $SUB |" >> $GITHUB_STEP_SUMMARY
+          done < /tmp/accts.txt
           probe "workers-scripts"  GET "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts"
           probe "workers-subdomain" GET "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain"
           probe "ai-models"        GET "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/ai/models/search?per_page=1"
