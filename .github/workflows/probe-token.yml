@@ -69,9 +69,7 @@ jobs:
 
           # Decisive: can this token UPLOAD a Worker script (Workers Scripts: Edit)?
           printf 'export default { fetch(){ return new Response("probe") } }' > /tmp/probe-worker.js
-          cat > /tmp/probe-meta.json <<'JSON'
-          {"main_module":"probe-worker.js","compatibility_date":"2025-09-01"}
-JSON
+          printf '%s' '{"main_module":"probe-worker.js","compatibility_date":"2025-09-01"}' > /tmp/probe-meta.json
           UCODE=$(curl -sS -o /tmp/up.json -w '%{http_code}' -X PUT \
             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
             -F "metadata=@/tmp/probe-meta.json;type=application/json" \
