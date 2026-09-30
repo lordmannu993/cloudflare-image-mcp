@@ -1,0 +1,66 @@
+name: Probe Cloudflare token
+
+# Diagnostic only: reports which Cloudflare APIs the stored token can reach.
+# Never prints the token or any secret value.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - arena/01a0f250-cloudflare-image-mcp
+    paths:
+      - '.github/workflows/probe-token.yml'
+      - '.probe-trigger'
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          probe () {
+            local label="$1" method="$2" url="$3"
+            local code
+            code=$(curl -sS -o /tmp/p.json -w '%{http_code}' -X "$method" \
+              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$url" || echo 000)
+            local msg
+            msg=$(node -e "
+              try{
+                const j=require('/tmp/p.json');
+                if(j.success){console.log('OK')}
+                else{console.log((j.errors||[]).map(e=>e.code+':'+e.message).join(' | '))}
+              }catch(e){console.log('non-JSON response')}
+            ")
+            echo "::notice title=$label::HTTP $code | $msg"
+            echo "| $label | $code | $msg |" >> $GITHUB_STEP_SUMMARY
+          }
+
+          echo "| probe | http | detail |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|---|" >> $GITHUB_STEP_SUMMARY
+
+          probe "accounts-list"    GET "https://api.cloudflare.com/client/v4/accounts?per_page=1"
+          probe "workers-scripts"  GET "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts"
+          probe "workers-subdomain" GET "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain"
+          probe "ai-models"        GET "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/ai/models/search?per_page=1"
+
+          # Can the token actually run FLUX.2? This is the capability that matters.
+          CODE=$(curl -sS -o /tmp/ai.json -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            -F "prompt=a single red apple on a white table" \
+            -F "width=512" -F "height=512" -F "steps=4" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/ai/run/@cf/black-forest-labs/flux-2-klein-4b" || echo 000)
+          SIZE=$(wc -c < /tmp/ai.json)
+          DETAIL=$(node -e "
+            try{
+              const j=require('/tmp/ai.json');
+              if(j.success===false){console.log((j.errors||[]).map(e=>e.code+':'+e.message).join(' | '))}
+              else if(j.result){console.log('image returned, base64 length '+String(j.result.image||j.result).length)}
+              else{console.log('unexpected shape')}
+            }catch(e){console.log('binary or non-JSON payload, '+process.env.SZ+' bytes')}
+          " 2>/dev/null || echo "payload $SIZE bytes")
+          SZ=$SIZE
+          echo "::notice title=flux2-run::HTTP $CODE | $DETAIL"
+          echo "| flux2-run | $CODE | $DETAIL |" >> $GITHUB_STEP_SUMMARY
